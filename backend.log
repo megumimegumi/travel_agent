@@ -1,0 +1,5 @@
+nohup: 忽略输入
+Traceback (most recent call last):
+  File "/home/megumi/travel_agent_project/backend/main.py", line 1, in <module>
+    from fastapi import FastAPI, HTTPException, Depends
+ModuleNotFoundError: No module named 'fastapi'
