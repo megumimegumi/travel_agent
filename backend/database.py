@@ -4,11 +4,10 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import json
 
-# 使用 SQLite 以确保无需配置即可运行 Demo
-# 如果需要 MySQL，请改为: "mysql+mysqlconnector://root:password@localhost/travel_agent_memory"
-SQLALCHEMY_DATABASE_URL = "sqlite:///./travel_agent.db"
+# 使用 MySQL 数据库
+SQLALCHEMY_DATABASE_URL = "mysql+mysqlconnector://Megumi:09231110jthJTH.@localhost/travel_agent_memory"
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

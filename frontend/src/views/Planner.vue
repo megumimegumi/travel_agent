@@ -133,30 +133,30 @@
                     <button @click="resetChat" class="reset-chat-btn" v-if="chatMessages.length > 0">清空对话</button>
                 </div>
                 
-                <div class="chat-window" ref="chatWindow">
-                    <div v-if="chatMessages.length === 0" class="empty-chat-hint">
-                        <p>👋 对行程有任何建议？您可以直接告诉我：</p>
-                        <ul>
-                            <li>"第二天不想去爬山，换个轻松点的"</li>
-                            <li>"预算有点超了，帮忙缩减一下"</li>
-                            <li>"第三天我想吃海鲜大餐"</li>
-                        </ul>
-                    </div>
-                    
-                    <div v-for="(msg, idx) in chatMessages" :key="idx" :class="['message-row', msg.role]">
-                         <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
-                         <div class="bubble">
-                            <p>{{ msg.content }}</p>
-                         </div>
-                    </div>
-                    
-                    <div v-if="isRevising" class="message-row assistant thinking">
-                        <div class="avatar">🤖</div>
-                        <div class="bubble">
-                            <span class="dot-flashing"></span>
+                        <div class="chat-window" ref="chatWindow">
+                            <div v-if="chatMessages.length === 0" class="empty-chat-hint">
+                                <p>👋 对行程有任何建议？您可以直接告诉我：</p>
+                                <div class="hint-chips">
+                                    <div class="hint-chip" @click="chatInput='第二天不想去爬山，换个轻松点的'">"第二天不想去爬山，换个轻松点的"</div>
+                                    <div class="hint-chip" @click="chatInput='预算有点超了，帮忙缩减一下'">"预算有点超了，帮忙缩减一下"</div>
+                                    <div class="hint-chip" @click="chatInput='第三天我想吃海鲜大餐'">"第三天我想吃海鲜大餐"</div>
+                                </div>
+                            </div>
+                            
+                            <div v-for="(msg, idx) in chatMessages" :key="idx" :class="['message-row', msg.role]">
+                                <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
+                                <div class="bubble">
+                                    <p>{{ msg.content }}</p>
+                                </div>
+                            </div>
+                            
+                            <div v-if="isRevising" class="message-row assistant thinking">
+                                <div class="avatar">🤖</div>
+                                <div class="bubble">
+                                    <span class="dot-flashing"></span>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
 
                 <div class="input-area">
                     <textarea 
@@ -257,10 +257,77 @@
         </div>
     </Transition>
 
+    <!-- Error Modal -->
+    <Transition name="modal-fade">
+        <div v-if="showErrorModal" class="modal-overlay error-mode" @click="showErrorModal = false">
+            <div class="error-modal-content" @click.stop>
+                <div class="error-icon">🛑</div>
+                <h3>无法生成行程</h3>
+                <p v-html="errorModalMessage" class="error-text"></p>
+                <button class="error-btn" @click="showErrorModal = false">知道了</button>
+            </div>
+        </div>
+    </Transition>
+
   </div>
 </template>
 
 <style scoped>
+/* Error Modal */
+.modal-overlay.error-mode {
+    cursor: auto !important;
+    background: rgba(0,0,0,0.5) !important;
+}
+
+.error-modal-content {
+    background: white;
+    padding: 30px;
+    border-radius: 16px;
+    text-align: center;
+    max-width: 400px;
+    width: 90%;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.2);
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.error-icon {
+    font-size: 3rem;
+    margin-bottom: 15px;
+}
+
+.error-modal-content h3 {
+    margin: 0 0 10px 0;
+    color: #d63031;
+}
+
+.error-text {
+    color: #636e72;
+    line-height: 1.6;
+    margin-bottom: 25px;
+    text-align: left;
+    background: #fff5f5;
+    padding: 15px;
+    border-radius: 8px;
+    font-size: 0.95rem;
+}
+
+.error-btn {
+    background: #d63031;
+    color: white;
+    border: none;
+    padding: 10px 30px;
+    border-radius: 20px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.error-btn:hover {
+    background: #e17055;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(214, 48, 49, 0.3);
+}
+
 /* Toast Styles */
 .chat-section {
     background: white;
@@ -295,16 +362,30 @@
 }
 
 .empty-chat-hint {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
     text-align: center;
-    color: #aaa;
-    margin-top: 40px;
+    color: #bbb;
+    margin-top: 0; /* Remove top margin to center vertically */
 }
-.empty-chat-hint ul { list-style: none; padding: 0; margin-top: 10px; font-size: 0.9rem; }
-.empty-chat-hint li { margin: 5px 0; background: #eee; display: inline-block; padding: 4px 10px; border-radius: 10px; margin-right: 5px;}
+.empty-chat-hint p { margin-bottom: 20px; font-size: 0.95rem; }
+.empty-chat-hint .hint-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.empty-chat-hint .hint-chip { 
+    background: #eee; 
+    padding: 6px 12px; 
+    border-radius: 16px; 
+    font-size: 0.85rem; 
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.empty-chat-hint .hint-chip:hover { background: #dfe6e9; color: #636e72; }
 
-.message-row { display: flex; gap: 10px; max-width: 80%; }
-.message-row.user { align-self: flex-end; flex-direction: row-reverse; }
-.message-row.assistant { align-self: flex-start; }
+.message-row { display: flex; gap: 10px; max-width: 80%; width: 100%; }
+.message-row.user { align-self: flex-end; justify-content: flex-end; }
+.message-row.assistant { align-self: flex-start; justify-content: flex-start; }
 
 .avatar { width: 36px; height: 36px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .message-row.user .avatar { background: #feeaa7; }
@@ -510,6 +591,8 @@ const chatWindow = ref(null);
 
 const showToast = ref(false);
 const toastMessage = ref('');
+const showErrorModal = ref(false);
+const errorModalMessage = ref('');
 
 onMounted(() => {
   const q = route.query;
@@ -585,8 +668,27 @@ const simulateThinking = () => {
 };
 
 const generatePlan = async () => {
-  loading.value = true;
+  // Clear previous state
   itinerary.value = null;
+  chatMessages.value = [];
+  
+  // 1. Basic Validation Logic
+  const isDateInvalid = form.value.start_date && (new Date(form.value.start_date) < new Date().setHours(0,0,0,0));
+  const isBudgetUnreasonale = form.value.budget < 50; // Too low for any practical plan
+  const isTravelersInvalid = form.value.travelers_count < 1;
+
+  if (isDateInvalid || isBudgetUnreasonale || isTravelersInvalid) {
+      let msg = "⚠️ 无法为您生成规划，原因如下:";
+      if (isDateInvalid) msg += "<br/>- 出发日期早于今天，除非您拥有时间机器。";
+      if (isBudgetUnreasonale) msg += `<br/>- 预算极低 (${form.value.budget}元)，无法覆盖基本食宿交通。建议适当提高。`;
+      if (isTravelersInvalid) msg += "<br/>- 出行人数无效（至少1人）。";
+      // alert(msg);
+      errorModalMessage.value = msg;
+      showErrorModal.value = true;
+      return; 
+  }
+
+  loading.value = true;
   const thinkingInterval = simulateThinking();
   
   // Parse interests
@@ -660,21 +762,28 @@ const sendMessage = async () => {
             throw new Error(`Revision failed: ${err}`);
         }
         
-        const newPlan = await response.json();
+        const data = await response.json();
         
-        // Update itinerary
-        itinerary.value = newPlan;
-        
-        // Add AI response
-        chatMessages.value.push({ 
-            role: 'assistant', 
-            content: '已为您更新了行程规划！请查看上方的最新安排。如有其他要求，请继续告诉我。' 
-        });
-        
-        // Re-enrich (fetch images etc for new plan)
-        enrichItinerary(newPlan);
-        
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        if (data.chat_message) {
+            chatMessages.value.push({ 
+                role: 'assistant', 
+                content: data.chat_message 
+            });
+        } else {
+            // Update itinerary
+            itinerary.value = data;
+            
+            // Add AI response
+            chatMessages.value.push({ 
+                role: 'assistant', 
+                content: '已为您更新了行程规划！请查看上方的最新安排。如有其他要求，请继续告诉我。' 
+            });
+            
+            // Re-enrich (fetch images etc for new plan)
+            enrichItinerary(data);
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         
     } catch (e) {
         chatMessages.value.push({ 
@@ -708,7 +817,7 @@ const saveItinerary = async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id: user.user_id, // Use actual user ID
+        user_id: user.username, // Use username instead of ID
         itinerary_data: itinerary.value
       })
     });
@@ -735,7 +844,8 @@ const saveItinerary = async () => {
   flex-direction: row;
   height: calc(100vh - 60px); /* Assuming navbar is ~60px */
   gap: 0;
-  margin: -20px; /* Counteract default container padding if any */
+  margin: 0; /* Remove negative margin to respect layout */
+  padding-left: 20px; /* Add spacing from the left edge */
 }
 
 .sidebar {
@@ -773,6 +883,7 @@ const saveItinerary = async () => {
   flex: 1;
   overflow-y: auto;
   padding: 0; /* Remove padding to be full flush */
+  margin-left: 40px; /* Add margin to separate from the sidebar */
   background: #fdfcf8;
   position: relative;
 }

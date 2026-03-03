@@ -90,13 +90,13 @@ const getUser = () => {
 
 const fetchList = async () => {
   const user = getUser();
-  if (!user || !user.user_id) {
+  if (!user || !user.username) { // Check username
       loading.value = false;
       return; 
   }
   
   try {
-    const res = await fetch(`/api/itineraries/${user.user_id}`);
+    const res = await fetch(`/api/itineraries/${user.username}`); // Use username in URL
     list.value = await res.json();
   } catch (e) {
     console.error(e);

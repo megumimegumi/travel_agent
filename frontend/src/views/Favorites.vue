@@ -84,13 +84,13 @@ const getUser = () => {
 
 const fetchList = async () => {
   const user = getUser();
-  if (!user || !user.user_id) {
+  if (!user || !user.username) {
       loading.value = false;
       return; 
   }
 
   try {
-    const res = await fetch(`/api/favorites/${user.user_id}`);
+    const res = await fetch(`/api/favorites/${user.username}`);
     list.value = await res.json();
   } catch (e) {
     console.error(e);

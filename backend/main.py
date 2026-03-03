@@ -170,7 +170,27 @@ import json
 async def revise_plan(req: ReviseRequest):
     try:
         planner = PlanningAgent()
+        deepseek = DeepSeekClient()
+
+        # Step 1: Detect Intent
+        intent_prompt = [
+            {"role": "system", "content": "You are an AI assistant helping a user with a travel itinerary. Determine if the user's message is a request to MODIFY the itinerary (e.g., add a day, change hotel, remove a spot) or just a CHAT message (e.g., hello, thank you, asking general questions without modification intent). Return ONLY the word 'MODIFY' or 'CHAT'."},
+            {"role": "user", "content": f"User message: {req.user_feedback}"}
+        ]
+        intent_resp = deepseek.chat_completion(intent_prompt, temperature=0.1)
+        intent = intent_resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
         
+        # If it's just chat, return a simple response
+        if "CHAT" in intent and "MODIFY" not in intent:
+             chat_prompt = [
+                {"role": "system", "content": "You are a helpful travel assistant. Reply to the user's message politely and helpfully. Keep it concise."},
+                {"role": "user", "content": req.user_feedback}
+             ]
+             chat_resp = deepseek.chat_completion(chat_prompt)
+             reply = chat_resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+             return {"chat_message": reply}
+
+        # Step 2: Proceed with revision if intent is MODIFY
         # 提取原先计划的简要视图
         daily_plans = req.current_plan.get("daily_plans", [])
         plan_summary = json.dumps(daily_plans, ensure_ascii=False)
