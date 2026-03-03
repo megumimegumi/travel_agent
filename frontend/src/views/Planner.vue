@@ -1,6 +1,6 @@
 <template>
   <div class="planner-page fade-in-up">
-    <div class="sidebar">
+    <div class="sidebar" :style="{ width: sidebarWidth + 'px' }">
       <h2>🛠️ 行程定制</h2>
       
       <div class="form-group">
@@ -86,6 +86,9 @@
       </button>
     </div>
 
+    <!-- Drag Handle -->
+    <div class="resizer" @mousedown="startDrag"></div>
+
     <!-- Right Side Content -->
     <div class="content-area">
       <Transition name="fade" mode="out-in">
@@ -120,46 +123,54 @@
             </div>
             <div class="actions">
                 <button @click="saveItinerary" class="save-btn">💾 保存</button>
-                <button @click="showSimInput = !showSimInput" class="sim-btn">⚡ 应对突发</button>
             </div>
             </div>
 
-            <!-- Simulation Input & Result -->
-            <Transition name="slide-down">
-                <div v-if="showSimInput" class="sim-card">
-                    <h3>🌩️ 模拟行程突发状况</h3>
-                    <div class="sim-input-group">
-                        <input v-model="simEventDesc" placeholder="例如：突然下大暴雨，或者航班延误了..." />
-                        <button @click="simulatePlan" :disabled="simulating">
-                            {{ simulating ? '正在调整...' : '开始调整' }}
-                        </button>
+            <!-- Chat Feedback Section -->
+            <div class="chat-section">
+                <div class="chat-header">
+                    <h3>💬 与 AI 对话调整行程</h3>
+                    <button @click="resetChat" class="reset-chat-btn" v-if="chatMessages.length > 0">清空对话</button>
+                </div>
+                
+                <div class="chat-window" ref="chatWindow">
+                    <div v-if="chatMessages.length === 0" class="empty-chat-hint">
+                        <p>👋 对行程有任何建议？您可以直接告诉我：</p>
+                        <ul>
+                            <li>"第二天不想去爬山，换个轻松点的"</li>
+                            <li>"预算有点超了，帮忙缩减一下"</li>
+                            <li>"第三天我想吃海鲜大餐"</li>
+                        </ul>
                     </div>
-
-                    <!-- Inline Result Display -->
-                    <div v-if="showSimChanges" class="sim-results-inline">
-                        <div class="sim-header-inline">
-                            <h4>⚡ 调整报告</h4>
-                            <button class="close-btn-text" @click="showSimChanges = false; showSimInput = false;">确认并关闭</button>
-                        </div>
-                        <p class="sim-intro">AI 已根据突发情况为您重组行程，变动如下：</p>
-                        <div class="change-list">
-                            <div v-for="(change, idx) in simulationChanges" :key="idx" :class="['change-item', change.type]">
-                                <div class="change-icon">
-                                    <span v-if="change.type === 'modify'">🔄</span>
-                                    <span v-if="change.type === 'cancel'">⛔</span>
-                                    <span v-if="change.type === 'add'">✨</span>
-                                    <span v-if="change.type === 'info'">ℹ️</span>
-                                </div>
-                                <div class="change-content">
-                                    <strong>Day {{ change.day }}</strong>
-                                    <span>{{ change.text }}</span>
-                                    <div v-if="change.details" class="change-detail">{{ change.details }}</div>
-                                </div>
-                            </div>
+                    
+                    <div v-for="(msg, idx) in chatMessages" :key="idx" :class="['message-row', msg.role]">
+                         <div class="avatar">{{ msg.role === 'user' ? '👤' : '🤖' }}</div>
+                         <div class="bubble">
+                            <p>{{ msg.content }}</p>
+                         </div>
+                    </div>
+                    
+                    <div v-if="isRevising" class="message-row assistant thinking">
+                        <div class="avatar">🤖</div>
+                        <div class="bubble">
+                            <span class="dot-flashing"></span>
                         </div>
                     </div>
                 </div>
-            </Transition>
+
+                <div class="input-area">
+                    <textarea 
+                        v-model="chatInput" 
+                        @keydown.enter.prevent="sendMessage"
+                        placeholder="请输入您的反馈意见..."
+                        rows="1"
+                        :disabled="isRevising"
+                    ></textarea>
+                    <button @click="sendMessage" :disabled="!chatInput.trim() || isRevising" class="send-btn">
+                        {{ isRevising ? '调整中...' : '发送' }}
+                    </button>
+                </div>
+            </div>
 
             <div class="days-container">
             <div v-for="day in itinerary.daily_plans" :key="day.day" class="day-card">
@@ -251,6 +262,131 @@
 
 <style scoped>
 /* Toast Styles */
+.chat-section {
+    background: white;
+    margin: 20px 0;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    overflow: hidden;
+    border: 1px solid #eee;
+}
+
+.chat-header {
+    background: #f8f9fa;
+    padding: 12px 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-header h3 { margin: 0; font-size: 1rem; color: #444; }
+.reset-chat-btn { background: none; border: none; font-size: 0.8rem; color: #999; cursor: pointer; }
+.reset-chat-btn:hover { color: #ff7675; }
+
+.chat-window {
+    height: 300px;
+    overflow-y: auto;
+    padding: 20px;
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.empty-chat-hint {
+    text-align: center;
+    color: #aaa;
+    margin-top: 40px;
+}
+.empty-chat-hint ul { list-style: none; padding: 0; margin-top: 10px; font-size: 0.9rem; }
+.empty-chat-hint li { margin: 5px 0; background: #eee; display: inline-block; padding: 4px 10px; border-radius: 10px; margin-right: 5px;}
+
+.message-row { display: flex; gap: 10px; max-width: 80%; }
+.message-row.user { align-self: flex-end; flex-direction: row-reverse; }
+.message-row.assistant { align-self: flex-start; }
+
+.avatar { width: 36px; height: 36px; background: #ddd; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.message-row.user .avatar { background: #feeaa7; }
+.message-row.assistant .avatar { background: #81ecec; }
+
+.bubble {
+    padding: 10px 15px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    position: relative;
+    word-break: break-word;
+}
+.message-row.user .bubble { background: #0984e3; color: white; border-top-right-radius: 2px; }
+.message-row.assistant .bubble { background: white; color: #2d3436; border: 1px solid #eee; border-top-left-radius: 2px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
+
+.input-area {
+    padding: 15px;
+    background: white;
+    border-top: 1px solid #eee;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+.input-area textarea {
+    flex: 1;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 10px 15px;
+    resize: none;
+    font-family: inherit;
+    outline: none;
+    max-height: 100px;
+}
+.input-area textarea:focus { border-color: #0984e3; }
+.send-btn {
+    background: #0984e3;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+.send-btn:disabled { background: #b2bec3; cursor: not-allowed; }
+
+/* Dot Flashing Animation */
+.dot-flashing {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 5px;
+  background-color: #9880ff;
+  color: #9880ff;
+  animation: dot-flashing 1s infinite linear alternate;
+  animation-delay: 0.5s;
+  margin: 0 10px;
+}
+.dot-flashing::before, .dot-flashing::after {
+  content: "";
+  display: inline-block;
+  position: absolute;
+  top: 0;
+}
+.dot-flashing::before {
+  left: -12px;
+  width: 6px; height: 6px; border-radius: 5px; background-color: #9880ff; color: #9880ff;
+  animation: dot-flashing 1s infinite alternate;
+  animation-delay: 0s;
+}
+.dot-flashing::after {
+  left: 12px;
+  width: 6px; height: 6px; border-radius: 5px; background-color: #9880ff; color: #9880ff;
+  animation: dot-flashing 1s infinite alternate;
+  animation-delay: 1s;
+}
+@keyframes dot-flashing {
+  0% { background-color: #9880ff; }
+  50%, 100% { background-color: rgba(152, 128, 255, 0.2); }
+}
+
 .toast-notification {
     position: fixed;
     top: 50%;
@@ -326,6 +462,32 @@ const interestsInput = ref(''); // Cleared default
 const zoomedImage = ref(null);
 const thinkingLogs = ref([]);
 
+const sidebarWidth = ref(350);
+const isDragging = ref(false);
+
+const startDrag = (e) => {
+    isDragging.value = true;
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', stopDrag);
+    document.body.style.userSelect = 'none'; // Prevent text selection
+};
+
+const onDrag = (e) => {
+    if (!isDragging.value) return;
+    let newWidth = e.clientX;
+    // Set some min and max width constraints
+    if (newWidth < 250) newWidth = 250;
+    if (newWidth > 600) newWidth = 600;
+    sidebarWidth.value = newWidth;
+};
+
+const stopDrag = () => {
+    isDragging.value = false;
+    document.removeEventListener('mousemove', onDrag);
+    document.removeEventListener('mouseup', stopDrag);
+    document.body.style.userSelect = '';
+};
+
 const form = ref({
   destination: '厦门',
   origin: '上海',
@@ -341,9 +503,10 @@ const form = ref({
   interests: []
 });
 
-const showSimInput = ref(false);
-const simEventDesc = ref('');
-const simulating = ref(false);
+const chatInput = ref('');
+const chatMessages = ref([]);
+const isRevising = ref(false);
+const chatWindow = ref(null);
 
 const showToast = ref(false);
 const toastMessage = ref('');
@@ -456,161 +619,74 @@ const generatePlan = async () => {
   }
 };
 
-const showSimChanges = ref(false);
-const simulationChanges = ref([]);
-
-const compareItineraries = (oldPlan, newPlan) => {
-    const changes = [];
-    if (!oldPlan || !newPlan) return ["行程已整体重置"];
-    
-    const daysOld = oldPlan.daily_plans || [];
-    const daysNew = newPlan.daily_plans || [];
-    
-    const maxDays = Math.max(daysOld.length, daysNew.length);
-    
-    for (let i = 0; i < maxDays; i++) {
-        const dayNum = i + 1;
-        if (i >= daysNew.length) {
-            changes.push({ day: dayNum, type: 'cancel', text: `取消了第 ${dayNum} 天由于不可抗力无法进行的行程` });
-            continue;
-        }
-        if (i >= daysOld.length) {
-             changes.push({ day: dayNum, type: 'add', text: `新增了第 ${dayNum} 天的行程安排` });
-             continue;
-        }
-
-        const dOld = daysOld[i];
-        const dNew = daysNew[i];
-        
-        // Detailed comparison
-        let removedActs = [];
-        let addedActs = [];
-        let modifiedActs = [];
-
-        // Simple check by title string
-        const oldTitles = dOld.activities.map(a => a.activity);
-        const newTitles = dNew.activities.map(a => a.activity);
-        
-        // Find Removed
-        dOld.activities.forEach(oldA => {
-            if (!newTitles.includes(oldA.activity)) removedActs.push(oldA);
-        });
-        
-        // Find Added
-        dNew.activities.forEach(newA => {
-            if (!oldTitles.includes(newA.activity)) addedActs.push(newA);
-        });
-        
-        // Try to match removed -> added as Replacement
-        // Heuristic: If we have 1 removed and 1 added, likely a replacement. 
-        // Or if 'removed' location is same type (Indoor/Outdoor checks are hard here without data).
-        // We will just sequentially pair them if counts match or close.
-        
-        let processedRemoved = [];
-        
-        if (removedActs.length > 0 && addedActs.length > 0) {
-            // Pair them up
-            const pairCount = Math.min(removedActs.length, addedActs.length);
-            for(let k=0; k<pairCount; k++) {
-                const rem = removedActs[k];
-                const add = addedActs[k];
-                processedRemoved.push(rem.activity);
-                
-                // Construct reason if available
-                let reason = "受突发状况影响";
-                if(simEventDesc.value.includes("雨") || simEventDesc.value.includes("雪")) reason = "因天气原因";
-                if(simEventDesc.value.includes("延误") || simEventDesc.value.includes("交通")) reason = "因交通变故";
-                
-                changes.push({
-                    day: dayNum,
-                    type: 'modify',
-                    text: `第 ${dayNum} 天行程变更`,
-                    details: `原计划前往 "${rem.activity}" ${reason}改为前往 "${add.activity}"`
-                });
-            }
-            // Logic to handle leftovers would go here
-        } 
-        else if (removedActs.length > 0) {
-             removedActs.forEach(rem => {
-                 changes.push({
-                     day: dayNum, 
-                     type: 'cancel',
-                     text: `第 ${dayNum} 天取消了 "${rem.activity}"`
-                 });
-             });
-        }
-        else if (addedActs.length > 0) {
-             addedActs.forEach(add => {
-                 changes.push({
-                     day: dayNum, 
-                     type: 'add',
-                     text: `第 ${dayNum} 天新增了 "${add.activity}"`
-                 });
-             });
-        }
-        
-        // Theme changes
-        if (dOld.theme !== dNew.theme) {
-                 changes.push({ 
-                    day: dayNum, 
-                    type: 'modify', 
-                    text: `第 ${dayNum} 天主题调整: "${dOld.theme}" -> "${dNew.theme}"`
-                });
-        }
+const scrollToBottom = () => {
+    if (chatWindow.value) {
+        setTimeout(() => {
+            chatWindow.value.scrollTop = chatWindow.value.scrollHeight;
+        }, 100);
     }
-    
-    if (changes.length === 0) changes.push({ day: 0, type: 'info', text: '行程整体无重大变动，仅做微调' });
-    return changes;
 };
 
-const simulatePlan = async () => {
-    if (!simEventDesc.value) return;
-    simulating.value = true;
+const resetChat = () => {
+    if(confirm('确定清除对话记录吗？')) {
+        chatMessages.value = [];
+    }
+};
+
+const sendMessage = async () => {
+    const text = chatInput.value.trim();
+    if (!text || isRevising.value) return;
+    
+    // Add user message
+    chatMessages.value.push({ role: 'user', content: text });
+    chatInput.value = '';
+    scrollToBottom();
+    
+    isRevising.value = true;
+    
     try {
-        // Keep a copy of old
-        const oldPlan = JSON.parse(JSON.stringify(itinerary.value));
-        
-        const response = await fetch('/api/plan/simulate', {
+        const response = await fetch('/api/plan/revise', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                itinerary: itinerary.value,
-                event_description: simEventDesc.value,
-                current_request: form.value
+                original_request: form.value,
+                current_plan: itinerary.value,
+                user_feedback: text
             })
         });
+        
         if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`Simulation failed: ${response.status} ${errText}`);
-        }
-        const data = await response.json();
-        
-        let newPlan = null;
-        if (data.new_itinerary) {
-            newPlan = data.new_itinerary;
-        } else if (data.updated_plan) {
-            newPlan = data.updated_plan;
+            const err = await response.text();
+            throw new Error(`Revision failed: ${err}`);
         }
         
-        if (newPlan) {
-            itinerary.value = newPlan;
-            simulationChanges.value = compareItineraries(oldPlan, newPlan);
-            showSimChanges.value = true; // Show modal
-            
-            // Enrich the new plan with images/info
-            enrichItinerary(newPlan);
-        }
+        const newPlan = await response.json();
         
-        simEventDesc.value = '';
-        showSimInput.value = false;
+        // Update itinerary
+        itinerary.value = newPlan;
+        
+        // Add AI response
+        chatMessages.value.push({ 
+            role: 'assistant', 
+            content: '已为您更新了行程规划！请查看上方的最新安排。如有其他要求，请继续告诉我。' 
+        });
+        
+        // Re-enrich (fetch images etc for new plan)
+        enrichItinerary(newPlan);
+        
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         
     } catch (e) {
-        console.error(e);
-        alert('模拟调整失败: ' + e.message);
+        chatMessages.value.push({ 
+            role: 'assistant', 
+            content: `抱歉，调整行程时出错了: ${e.message}` 
+        });
     } finally {
-        simulating.value = false;
+        isRevising.value = false;
+        scrollToBottom();
     }
 };
+
 
 const saveItinerary = async () => {
   if (!itinerary.value) return;
@@ -656,23 +732,21 @@ const saveItinerary = async () => {
 /* Page Layout */
 .planner-page {
   display: flex;
-  height: calc(100vh - 60px); /* 60px is approx nav height */
-  width: 100vw;
-  overflow: hidden;
-  background-color: #fdfcf8;
+  flex-direction: row;
+  height: calc(100vh - 60px); /* Assuming navbar is ~60px */
+  gap: 0;
+  margin: -20px; /* Counteract default container padding if any */
 }
 
 .sidebar {
-  width: 320px;
-  flex-shrink: 0;
-  background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
-  padding: 24px;
-  border-right: 1px solid #eaeaea;
+  width: 350px;
+  background: white;
+  border-right: 1px solid #ebebeb;
+  padding: 20px;
   overflow-y: auto;
-  box-shadow: 2px 0 10px rgba(0,0,0,0.02);
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
+  flex-shrink: 0;
+  box-shadow: 2px 0 15px rgba(0,0,0,0.02);
+  z-index: 10;
 }
 
 .sidebar h2 {
@@ -680,6 +754,19 @@ const saveItinerary = async () => {
     color: #333;
     margin-bottom: 10px;
     font-weight: 600;
+}
+
+.resizer {
+  width: 5px;
+  background-color: #f0f0f0;
+  cursor: ew-resize;
+  flex-shrink: 0;
+  z-index: 10;
+  transition: background-color 0.2s;
+}
+
+.resizer:hover, .resizer:active {
+  background-color: #a18cd1;
 }
 
 .content-area {

@@ -37,6 +37,11 @@ class RecommendationRequest(BaseModel):
     user_profile: Dict[str, Any]
     requirements: str
 
+class RevisionRequest(BaseModel):
+    original_request: TravelRequest
+    current_plan: Dict[str, Any]
+    user_feedback: str
+
 class ItinerarySaveRequest(BaseModel):
     user_id: str
     itinerary_data: Dict[str, Any] # 完整的 itinerary json
@@ -44,11 +49,6 @@ class ItinerarySaveRequest(BaseModel):
 class ItineraryActionRequest(BaseModel):
     itinerary_id: int
     action: str # "favorite", "unfavorite", "delete"
-
-class SimulationRequest(BaseModel):
-    itinerary: Dict[str, Any]
-    event_description: str
-    current_request: Dict[str, Any]
 
 class UserCreate(BaseModel):
     username: str
@@ -114,6 +114,11 @@ def reset_password(req: UserResetPassword, db: Session = Depends(get_db)):
 
 # --- Endpoints ---
 
+class ReviseRequest(BaseModel):
+    original_request: TravelRequest
+    current_plan: Dict[str, Any]
+    user_feedback: str
+
 @app.get("/api/tools/scenic_info")
 def get_scenic_info(keyword: str, city: str = None):
     tool = ScenicTool()
@@ -159,67 +164,25 @@ async def generate_plan(request: TravelRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/plan/simulate")
-async def simulate_event(req: SimulationRequest):
+import json
+
+@app.post("/api/plan/revise")
+async def revise_plan(req: ReviseRequest):
     try:
-        # 重构必要对象以调用 GuideAgent
-        # 这里简化处理：直接使用 PlanningAgent 重新规划，模拟 Guide 的决策结果为 REPLAN
-        # 在完整版中，应该先调用 GuideAgent.reflect_and_act 判断是否需要重规划
-        
-        # 1. 简易 Reflection
-        guide = GuideAgent()
-        # Mock Context (在真实场景中应从前端传入完整 TravelState)
-        # 这里我们直接构造一个假定需要重规划的场景
-        
-        # 2. Action: 触发重规划
         planner = PlanningAgent()
         
-        # 重构 TravelRequest 对象
-        req_data = req.current_request
-        # 如果是 Pydantic model dump 出来的，可能是 dict
-        if isinstance(req_data, dict):
-            # 确保枚举值正确
-            from models import FitnessLevel, TravelPace
-            # 简单的枚举转换尝试，失败则用默认值
-            try:
-                if 'fitness_level' in req_data: req_data['fitness_level'] = FitnessLevel(req_data['fitness_level'])
-                if 'pace' in req_data: req_data['pace'] = TravelPace(req_data['pace'])
-            except:
-                pass
-            travel_req = TravelRequest(**req_data)
-        else:
-            travel_req = req_data
-            
-        # 3. Re-run Planner
-        # 直接将突发事件描述传递给 Agent，让其作为修正指令处理
-        # 使用 weather_info 传递天气相关的突发状况
+        # 提取原先计划的简要视图
+        daily_plans = req.current_plan.get("daily_plans", [])
+        plan_summary = json.dumps(daily_plans, ensure_ascii=False)
         
-        weather_context = "正常"
-        # 简单的关键字检测，辅助 Agent 判断 (但主要依靠 Feedback)
-        if any(keyword in req.event_description for keyword in ["雨", "雪", "台风", "雾", "热", "冷", "温"]):
-             weather_context = f"【突发天气变化】{req.event_description}"
-
-        feedback = f"""
-        发生突发状况: "{req.event_description}"。
-        请重新规划行程以适应这一变化。
-        如果突发状况涉及特定日期的天气变化（如"第二天有雨"），请务必更新该日 `daily_plans` 中的 `weather_summary` 字段为新的天气状况（例如 "有雨" 或 "大雨转阴"）。
-        如果某个活动因突发状况无法进行，请替换为合适的替代活动。
-        """
+        feedback_str = f"原先的行程（部分或全部）：{plan_summary}。\n\n用户对这个行程的修改意见是：{req.user_feedback}。\n\n请根据用户的修改意见，在原行程的基础上进行调整，并返回完整的行程JSON。"
         
-        new_itinerary = planner.run(
-            travel_req, 
-            weather_info=weather_context, 
-            feedback=feedback
-        )
-        
-        return {
-            "status": "replanned",
-            "message": "AI 已根据突发事件调整了行程",
-            "new_itinerary": new_itinerary
-        }
+        itinerary = planner.run(request=req.original_request, feedback=feedback_str)
+        return itinerary
         
     except Exception as e:
-        print(f"Simulation error: {e}")
+        print(f"Error revising plan: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/recommend/destinations")
