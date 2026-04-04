@@ -29,6 +29,7 @@ class UserProfile(BaseModel):
 
 class TravelRequest(BaseModel):
     """单次旅行需求：定义本次旅行的具体约束"""
+    user_id: Optional[str] = None # 用于关联用户历史数据
     destination: str
     origin: str
     start_date: Optional[str] = None # YYYY-MM-DD

@@ -100,7 +100,8 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
     if not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=400, detail="Incorrect password")
     
-    return {"status": "success", "username": db_user.username, "user_id": str(db_user.id)}
+    # 修改：返回 user_id 直接设定为 username，而不是数据库生成的数字 id
+    return {"status": "success", "username": db_user.username, "user_id": db_user.username}
 
 @app.post("/api/auth/reset-password")
 def reset_password(req: UserResetPassword, db: Session = Depends(get_db)):
@@ -126,22 +127,41 @@ def get_scenic_info(keyword: str, city: str = None):
     return info if info else {"error": "Not found"}
 
 @app.post("/api/plan/generate")
-async def generate_plan(request: TravelRequest):
+async def generate_plan(request: TravelRequest, db: Session = Depends(get_db)):
     try:
-        # 1. Initialize Tools
+        print(f"[Generate Plan] Received request for user_id: {request.user_id}")
+        # 1. 查询用户最近5次的历史记录，用于塑造用户画像
+        user_history_str = ""
+        if request.user_id:
+            recent_plans = db.query(DbItinerary).filter(DbItinerary.user_id == request.user_id).order_by(DbItinerary.created_at.desc()).limit(5).all()
+            print(f"[Generate Plan] Found {len(recent_plans)} history records.")
+            if recent_plans:
+                history_list = []
+                for idx, plan in enumerate(recent_plans):
+                    pace_info = plan.pace or "未知"
+                    travelers_info = plan.travelers or "未知"
+                    tags_info = plan.tags or "无"
+                    history_list.append(
+                        f"{idx+1}. 曾在 {plan.start_date or '未知'} 前往: {plan.destination}, "
+                        f"时长: {plan.days}天, 预算: {plan.total_cost}元, "
+                        f"出行人物: {travelers_info}, 游玩节奏: {pace_info}, 偏好标签: {tags_info}"
+                    )
+                user_history_str = "用户过去5次的旅行记录如下，这能精准反映TA真实的消费水平、同行人员结构以及核心游玩节奏：\n" + "\n".join(history_list)
+
+        # 2. Initialize Tools
         deepseek = DeepSeekClient()
         weather_tool = WeatherTool()
         traffic_tool = TrafficTool()
         planner = PlanningAgent()
         
-        # 2. Analyze tool needs (simplified AIR loop for backend)
+        # 3. Analyze tool needs (simplified AIR loop for backend)
         req_dict = request.dict()
         needed_tools = deepseek.analyze_tool_needs(req_dict)
         
         weather_ctx = ""
         route_ctx = ""
         
-        # 3. Gather Context
+        # 4. Gather Context
         if "weather" in needed_tools:
             w_data = weather_tool.get_forecast(request.destination)
             if "error" not in w_data:
@@ -155,8 +175,14 @@ async def generate_plan(request: TravelRequest):
              mode = decision.get("recommended_mode", "driving")
              route_ctx = f"建议跨城交通: {mode}。距离 {dist_km}km。"
 
-        # 4. Generate Plan
-        itinerary = planner.run(request, weather_info=weather_ctx, route_info=route_ctx)
+        # 5. Generate Plan，传入用户的历史数据记忆
+        print(f"[Generate Plan] Calling planner with user_history_str:\n{user_history_str}")
+        itinerary = planner.run(request, weather_info=weather_ctx, route_info=route_ctx, user_history=user_history_str)
+        try:
+            import json
+            print(f"[Generate Plan] Special Tips output: {json.dumps(itinerary.dict().get('special_tips'), ensure_ascii=False)}")
+        except Exception:
+            pass
         return itinerary
         
     except Exception as e:
@@ -165,6 +191,33 @@ async def generate_plan(request: TravelRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 import json
+import os
+
+STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
+os.makedirs(STORAGE_DIR, exist_ok=True)
+
+def fill_itinerary_data(it: DbItinerary):
+    item_dict = {
+        "id": it.id,
+        "user_id": it.user_id,
+        "destination": it.destination,
+        "start_date": it.start_date,
+        "days": it.days,
+        "total_cost": it.total_cost,
+        "pace": getattr(it, 'pace', ''),
+        "travelers": getattr(it, 'travelers', ''),
+        "tags": getattr(it, 'tags', ''),
+        "is_favorite": it.is_favorite,
+        "created_at": it.created_at.isoformat() if it.created_at else None
+    }
+    file_path = os.path.join(STORAGE_DIR, f"{it.id}.json")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            item_dict["content_json"] = json.load(f)
+    else:
+        # Fallback 模拟结构防止前端报错
+        item_dict["content_json"] = {"daily_plans": []}
+    return item_dict
 
 @app.post("/api/plan/revise")
 async def revise_plan(req: ReviseRequest):
@@ -221,7 +274,8 @@ async def get_my_itineraries(user_id: str, db: Session = Depends(get_db)):
         DbItinerary.user_id == user_id,
         DbItinerary.is_saved == True
     ).order_by(DbItinerary.created_at.desc()).all()
-    return itineraries
+    
+    return [fill_itinerary_data(it) for it in itineraries]
 
 @app.get("/api/favorites/{user_id}")
 async def get_my_favorites(user_id: str, db: Session = Depends(get_db)):
@@ -230,7 +284,8 @@ async def get_my_favorites(user_id: str, db: Session = Depends(get_db)):
         DbItinerary.user_id == user_id,
         DbItinerary.is_favorite == True
     ).order_by(DbItinerary.created_at.desc()).all()
-    return favorites
+    
+    return [fill_itinerary_data(it) for it in favorites]
 
 @app.post("/api/itineraries/save")
 async def save_itinerary(req: ItinerarySaveRequest, db: Session = Depends(get_db)):
@@ -238,19 +293,35 @@ async def save_itinerary(req: ItinerarySaveRequest, db: Session = Depends(get_db
     # 解析关键字段用于索引
     req_info = data.get('request', {})
     
+    interests = req_info.get("interests", [])
+    if not interests:
+        # 如果用户没有填兴趣，把 AI 规划出来的每天的主题 (theme) 抽取出来当作个性化 tags 记录下来！这样存入库里就不会是空的
+        themes = [day.get("theme", "") for day in data.get("daily_plans", []) if day.get("theme")]
+        interests = list(set(themes))[:3]
+        
+    tags_str = ",".join(interests) if isinstance(interests, list) else str(interests)
+
     db_item = DbItinerary(
         user_id=req.user_id,
         destination=req_info.get('destination', 'Unknown'),
         start_date=req_info.get('start_date', ''),
         days=req_info.get('days', 1),
         total_cost=data.get('total_cost_estimate', 0),
-        content_json=data,
+        pace=req_info.get("pace", ""),
+        travelers=req_info.get("travelers_relation", ""),
+        tags=tags_str,
         is_saved=True,
         is_favorite=False
     )
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
+    
+    # 彻底告别数据库臃肿，将 AI 吐出的大段 JSON 写到本地文件中！
+    file_path = os.path.join(STORAGE_DIR, f"{db_item.id}.json")
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+
     return {"status": "success", "id": db_item.id}
 
 @app.post("/api/itineraries/{itin_id}/action")

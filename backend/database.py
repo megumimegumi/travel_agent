@@ -22,9 +22,11 @@ class DbItinerary(Base):
     days = Column(Integer)
     total_cost = Column(Integer)
     
-    # 存储完整的 JSON 结构
-    content_json = Column(JSON) 
-    
+    # 新增：轻量化个性化特征字段（替代原先冗长无用的 content_json）
+    pace = Column(String(50), nullable=True)       # 游玩节奏，如"特种兵","悠闲"
+    travelers = Column(String(50), nullable=True)  # 同行人员，如"情侣","亲子","独自"
+    tags = Column(String(200), nullable=True)      # 核心兴趣，如"美食,人文,自然"
+
     created_at = Column(DateTime, default=datetime.now)
     is_saved = Column(Boolean, default=True)   # 是否在“我的行程”中
     is_favorite = Column(Boolean, default=False) # 是否在“我的收藏”中

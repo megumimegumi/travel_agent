@@ -11,14 +11,15 @@ class WeatherTool:
     def __init__(self):
         self.config = Config()
         self.api_key = self.config.qweather_api_key
-        # 和风天气 自定义 API Host
+        # 用户提供的这套凭证信息经测试仍然是走专属代理通道
         self.base_host = "https://mt3dn8ycec.re.qweatherapi.com"
+        self.geo_host = "https://mt3dn8ycec.re.qweatherapi.com/geo"
         
     def _get_location_id(self, city_name: str) -> Optional[str]:
         """获取城市Location ID"""
         try:
-            # 根据用户提供的文档，GeoAPI路径可能是 /geo/v2/city/lookup
-            url = f"{self.base_host}/geo/v2/city/lookup"
+            # 使用对应环境的 GeoAPI Host
+            url = f"{self.geo_host}/v2/city/lookup"
             params = {
                 "location": city_name,
                 "key": self.api_key,
@@ -27,13 +28,6 @@ class WeatherTool:
             response = requests.get(url, params=params, timeout=10)
             data = response.json()
             
-            if data.get("code") == "200" and data.get("location"):
-                return data["location"][0]["id"]
-            
-            # 如果上面失败，尝试标准 GeoAPI Host 作为备选
-            url_backup = "https://geoapi.qweather.com/v2/city/lookup"
-            response = requests.get(url_backup, params=params, timeout=10)
-            data = response.json()
             if data.get("code") == "200" and data.get("location"):
                 return data["location"][0]["id"]
                 

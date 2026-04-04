@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/megumi/travel_agent_project/test_planner.py", line 2, in <module>
+    from src.agents.planning_agent import PlanningAgent
+  File "/home/megumi/travel_agent_project/src/agents/planning_agent.py", line 5, in <module>
+    from agents.base import BaseAgent
+ModuleNotFoundError: No module named 'agents'

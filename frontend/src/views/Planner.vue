@@ -116,14 +116,24 @@
 
         <div v-else-if="itinerary" class="result-container key-3">
             <div class="header-card">
-            <h2>📍 {{ itinerary.request.destination }} · {{ itinerary.request.days }}日智能规划</h2>
-            <div class="meta-info">
-                <span>💰 预算: ¥{{ itinerary.total_cost_estimate }}</span>
-                <span>🗓️ {{ itinerary.request.start_date }}</span>
-            </div>
-            <div class="actions">
-                <button @click="saveItinerary" class="save-btn">💾 保存</button>
-            </div>
+              <h2>📍 {{ itinerary.request.destination }} · {{ itinerary.request.days }}日智能规划</h2>
+              <div class="meta-info">
+                  <span>💰 预算: ¥{{ itinerary.total_cost_estimate }}</span>
+                  <span>🗓️ {{ itinerary.request.start_date }}</span>
+              </div>
+              
+              <!-- 👑 专门为历史用户的定制回忆板块 👑 -->
+              <div v-if="itinerary.special_tips && itinerary.special_tips['专属定制说明']" class="insight-badge">
+                  <h4>💡 AI 专属定制说明</h4>
+                  <ul v-if="Array.isArray(itinerary.special_tips['专属定制说明'])" class="insight-list">
+                      <li v-for="(tip, index) in itinerary.special_tips['专属定制说明']" :key="index">{{ tip }}</li>
+                  </ul>
+                  <p v-else>{{ itinerary.special_tips['专属定制说明'] }}</p>
+              </div>
+
+              <div class="actions">
+                  <button @click="saveItinerary" class="save-btn">💾 保存</button>
+              </div>
             </div>
 
             <!-- Chat Feedback Section -->
@@ -649,11 +659,13 @@ const toggleDetail = (act) => {
 const simulateThinking = () => {
     thinkingLogs.value = [];
     const steps = [
-        "🤔 正在理解您的旅行需求...",
-        "🌤️ 正在查询目的地天气与交通...",
-        "🏨 正在筛选符合您偏好的住宿...",
-        "🗺️ 正在规划最佳游玩路线...",
-        "✨ 正在生成个性化避坑指南..."
+        "🤔 正在理解您的此次旅行需求...",
+        "📚 正在检索您近期的历史出行记录...",
+        "💡 分析您的历史消费习惯与游玩节奏...",
+        "🌤️ 正在调用最新天气API查询目的地当期气况...",
+        "🚗 正在为您研判合适的跨城交通与市内路线...",
+        "🏨 正在匹配符合您过往品质标准的住宿...",
+        "✨ 正在生成您的专属个性化行程大纲..."
     ];
     let i = 0;
     const interval = setInterval(() => {
@@ -663,7 +675,7 @@ const simulateThinking = () => {
         } else {
             clearInterval(interval);
         }
-    }, 800);
+    }, 1500); // 调慢一点让用户能看清每一步的思考过程
     return interval;
 };
 
@@ -691,6 +703,16 @@ const generatePlan = async () => {
   loading.value = true;
   const thinkingInterval = simulateThinking();
   
+  // Inject user_id from local storage so backend can query history
+  const userStr = localStorage.getItem('user');
+  if (userStr) {
+      try {
+          const userObj = JSON.parse(userStr);
+          // Always use username to link history, consistent with how itineraries are saved
+          form.value.user_id = userObj.username || userObj.user_id;
+      } catch(e) {}
+  }
+
   // Parse interests
   form.value.interests = interestsInput.value.split(',').map(s => s.trim()).filter(s => s);
   
@@ -968,6 +990,48 @@ const saveItinerary = async () => {
   box-shadow: 0 10px 30px rgba(0,0,0,0.03); margin-bottom: 30px;
   border: 1px solid #f0f0f0;
   position: relative; overflow: hidden;
+}
+.insight-badge {
+    background: linear-gradient(135deg, #fff9c4 0%, #ffecb3 100%);
+    border-left: 4px solid #fbc02d;
+    padding: 12px 15px;
+    border-radius: 8px;
+    margin: 15px 0 10px 0;
+    color: #5d4037;
+    position: relative;
+    z-index: 1;
+}
+.insight-badge h4 {
+    margin: 0 0 5px 0;
+    color: #e65100;
+    font-size: 0.95em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.insight-badge p, .insight-list {
+    margin: 0;
+    font-size: 0.85em;
+    line-height: 1.6;
+}
+.insight-list {
+    list-style: none;
+    padding-left: 0;
+    margin-top: 8px;
+}
+.insight-list li {
+    margin-bottom: 6px;
+    padding-left: 12px;
+    position: relative;
+}
+.insight-list li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: #f57f17;
+}
+.insight-list li:last-child {
+    margin-bottom: 0;
 }
 .header-card::before {
     content: ''; position: absolute; top:0; left:0; width: 6px; height: 100%;

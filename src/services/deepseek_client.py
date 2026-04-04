@@ -359,12 +359,14 @@ class DeepSeekClient:
             response = self.chat_completion(messages, max_tokens=100)
             content = response.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
             
-            # 简单清理
-            if content.startswith("```"): content = content.split("```")[1]
-            if content.startswith("json"): content = content[4:]
+            # 使用更平健的正则或查找提取 JSON 数组
+            start = content.find("[")
+            end = content.rfind("]")
+            if start != -1 and end != -1:
+                content = content[start:end+1]
             
             tools = json.loads(content.strip())
-            return tools if isinstance(tools, list) else ["weather", "traffic"] # 默认全选
+            return tools if isinstance(tools, list) else ["weather", "traffic"]
         except:
             return ["weather", "traffic"] # 出错时保守起见全选
 
