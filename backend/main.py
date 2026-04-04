@@ -176,13 +176,7 @@ async def generate_plan(request: TravelRequest, db: Session = Depends(get_db)):
              route_ctx = f"建议跨城交通: {mode}。距离 {dist_km}km。"
 
         # 5. Generate Plan，传入用户的历史数据记忆
-        print(f"[Generate Plan] Calling planner with user_history_str:\n{user_history_str}")
         itinerary = planner.run(request, weather_info=weather_ctx, route_info=route_ctx, user_history=user_history_str)
-        try:
-            import json
-            print(f"[Generate Plan] Special Tips output: {json.dumps(itinerary.dict().get('special_tips'), ensure_ascii=False)}")
-        except Exception:
-            pass
         return itinerary
         
     except Exception as e:
