@@ -708,8 +708,7 @@ const generatePlan = async () => {
   if (userStr) {
       try {
           const userObj = JSON.parse(userStr);
-          // Always use username to link history, consistent with how itineraries are saved
-          form.value.user_id = userObj.username || userObj.user_id;
+          form.value.user_id = userObj.username || String(userObj.user_id);
       } catch(e) {}
   }
 
@@ -839,7 +838,7 @@ const saveItinerary = async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        user_id: user.username, // Use username instead of ID
+        user_id: user.username || String(user.user_id), // Handle both old and new localStorage formats
         itinerary_data: itinerary.value
       })
     });
