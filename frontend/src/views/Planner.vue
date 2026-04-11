@@ -242,9 +242,11 @@
             </div>
             <div v-if="itinerary.special_tips" class="module-card">
                 <h3>🚦 避坑指南</h3>
-                <div v-for="(tips, type) in itinerary.special_tips" :key="type" class="prep-item">
-                <p><strong>{{ type }}</strong>: {{ tips.join('; ') }}</p>
-                </div>
+                <template v-for="(tips, type) in itinerary.special_tips" :key="type">
+                  <div v-if="type !== '专属定制说明'" class="prep-item">
+                    <p><strong>{{ type }}</strong>: {{ tips.join ? tips.join('; ') : tips }}</p>
+                  </div>
+                </template>
             </div>
             </div>
 

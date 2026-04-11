@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ from tools.weather_tool import WeatherTool
 from tools.traffic_tool import TrafficTool
 from tools.scenic_tool import ScenicTool
 from services.deepseek_client import DeepSeekClient
-from backend.database import SessionLocal, DbItinerary, User, init_db
+from backend.database import SessionLocal, DbItinerary, User, UserEvaluation, init_db
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -127,14 +127,14 @@ def get_scenic_info(keyword: str, city: str = None):
     return info if info else {"error": "Not found"}
 
 @app.post("/api/plan/generate")
-async def generate_plan(request: TravelRequest, db: Session = Depends(get_db)):
+async def generate_plan(request: TravelRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         print(f"[Generate Plan] Received request for user_id: {request.user_id}")
-        # 1. 查询用户最近5次的历史记录，用于塑造用户画像
+        
         user_history_str = ""
         if request.user_id:
+            # 读取历史行程
             recent_plans = db.query(DbItinerary).filter(DbItinerary.user_id == request.user_id).order_by(DbItinerary.created_at.desc()).limit(5).all()
-            print(f"[Generate Plan] Found {len(recent_plans)} history records.")
             if recent_plans:
                 history_list = []
                 for idx, plan in enumerate(recent_plans):
@@ -146,7 +146,22 @@ async def generate_plan(request: TravelRequest, db: Session = Depends(get_db)):
                         f"时长: {plan.days}天, 预算: {plan.total_cost}元, "
                         f"出行人物: {travelers_info}, 游玩节奏: {pace_info}, 偏好标签: {tags_info}"
                     )
-                user_history_str = "用户过去5次的旅行记录如下，这能精准反映TA真实的消费水平、同行人员结构以及核心游玩节奏：\n" + "\n".join(history_list)
+                user_history_str = "【历史行程记录】\n过去5次的旅行：\n" + "\n".join(history_list) + "\n"
+
+            # 读取用户评价画像（新增表）
+            user_eval = db.query(UserEvaluation).filter(UserEvaluation.user_id == request.user_id).first()
+            if user_eval:
+                eval_str = ""
+                if user_eval.recent_evaluation:
+                    eval_str += f"[近期偏好评价]: {user_eval.recent_evaluation}\n"
+                if user_eval.long_term_evaluation:
+                    eval_str += f"[长期画像总结]: {user_eval.long_term_evaluation}\n"
+                
+                if eval_str:
+                    user_history_str = "【AI用户画像】\n" + eval_str + "\n" + user_history_str
+            else:
+                if user_history_str:
+                    user_history_str = "【AI用户画像】\n暂无明确评价，请根据以下历史记录推断。\n" + user_history_str
 
         # 2. Initialize Tools
         deepseek = DeepSeekClient()
@@ -177,6 +192,7 @@ async def generate_plan(request: TravelRequest, db: Session = Depends(get_db)):
 
         # 5. Generate Plan，传入用户的历史数据记忆
         itinerary = planner.run(request, weather_info=weather_ctx, route_info=route_ctx, user_history=user_history_str)
+        
         return itinerary
         
     except Exception as e:
@@ -189,6 +205,51 @@ import os
 
 STORAGE_DIR = os.path.join(os.path.dirname(__file__), "storage")
 os.makedirs(STORAGE_DIR, exist_ok=True)
+
+def update_user_evaluation_in_bg(user_id: str):
+    db: Session = SessionLocal()
+    try:
+        print(f"[Update Evaluation] Starting background update for user {user_id}...")
+        
+        # 查询近期与所有已保存的行程
+        recent_plans = db.query(DbItinerary).filter(DbItinerary.user_id == user_id, DbItinerary.is_saved == True).order_by(DbItinerary.created_at.desc()).limit(5).all()
+        all_plans = db.query(DbItinerary).filter(DbItinerary.user_id == user_id, DbItinerary.is_saved == True).order_by(DbItinerary.created_at.desc()).limit(20).all()
+        
+        if not recent_plans:
+            print("[Update Evaluation] No saved plans found, clearing evaluation.")
+            user_eval = db.query(UserEvaluation).filter(UserEvaluation.user_id == user_id).first()
+            if user_eval:
+                db.delete(user_eval)
+                db.commit()
+            return
+
+        recent_list = [f"前往:{p.destination}, {p.days}天, 预算{p.total_cost}元, 人物:{p.travelers}, 节奏:{p.pace}, 标签:{p.tags}" for p in recent_plans]
+        all_list = [f"于{p.start_date or '未知'}前往:{p.destination}, {p.days}天, 预算{p.total_cost}元, 人物:{p.travelers}, 节奏:{p.pace}, 标签:{p.tags}" for p in all_plans]
+
+        deepseek = DeepSeekClient()
+        recent_prompt = [{"role": "user", "content": "这是该用户最近5次的旅行记录：\n" + "\n".join(recent_list) + "\n\n请用200字以内概括该用户最近的总体游玩偏好，比如消费水平、同行人群、游玩节奏和倾向的兴趣点。请只输出纯文本，绝对不要使用任何Markdown格式符号（如加粗的**符号、标题###等）。"}]
+        recent_resp = deepseek.chat_completion(recent_prompt)
+        recent_eval = recent_resp.get("choices", [{}])[0].get("message", {}).get("content", "").replace("**", "").replace("###", "")
+
+        long_prompt = [{"role": "user", "content": "这是该用户历史的多条/所有旅行记录：\n" + "\n".join(all_list) + "\n\n请用300字以内提炼该用户的个人画像，包括该用户的消费观念、整体旅行风格以及对目的地的倾向性长期评价。请只输出纯文本，绝对不要使用任何Markdown格式符号（如加粗的**符号、标题###等）。"}]
+        long_resp = deepseek.chat_completion(long_prompt)
+        long_eval = long_resp.get("choices", [{}])[0].get("message", {}).get("content", "").replace("**", "").replace("###", "")
+
+        # 3. 写回数据库
+        user_eval = db.query(UserEvaluation).filter(UserEvaluation.user_id == user_id).first()
+        if not user_eval:
+            user_eval = UserEvaluation(user_id=user_id, recent_evaluation=recent_eval, long_term_evaluation=long_eval)
+            db.add(user_eval)
+        else:
+            user_eval.recent_evaluation = recent_eval
+            user_eval.long_term_evaluation = long_eval
+            
+        db.commit()
+        print(f"[Update Evaluation] Finished properly for user {user_id}")
+    except Exception as e:
+        print(f"[Update Evaluation] Error: {e}")
+    finally:
+        db.close()
 
 def fill_itinerary_data(it: DbItinerary):
     item_dict = {
@@ -282,7 +343,7 @@ async def get_my_favorites(user_id: str, db: Session = Depends(get_db)):
     return [fill_itinerary_data(it) for it in favorites]
 
 @app.post("/api/itineraries/save")
-async def save_itinerary(req: ItinerarySaveRequest, db: Session = Depends(get_db)):
+async def save_itinerary(req: ItinerarySaveRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     data = req.itinerary_data
     # 解析关键字段用于索引
     req_info = data.get('request', {})
@@ -316,23 +377,40 @@ async def save_itinerary(req: ItinerarySaveRequest, db: Session = Depends(get_db
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
+    # 保存后触发更新用户评价表
+    background_tasks.add_task(update_user_evaluation_in_bg, req.user_id)
+
     return {"status": "success", "id": db_item.id}
 
 @app.post("/api/itineraries/{itin_id}/action")
-async def update_itinerary_status(itin_id: int, req: ItineraryActionRequest, db: Session = Depends(get_db)):
+async def update_itinerary_status(itin_id: int, req: ItineraryActionRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     item = db.query(DbItinerary).filter(DbItinerary.id == itin_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Itinerary not found")
         
+    user_id = item.user_id
+
     if req.action == "favorite":
         item.is_favorite = True
+        db.commit()
     elif req.action == "unfavorite":
         item.is_favorite = False
+        db.commit()
     elif req.action == "delete":
-        item.is_saved = False
-        item.is_favorite = False # 彻底移除
+        # 真正从数据库中删除记录，并同步删除 JSON 文件
+        try:
+            file_path = os.path.join(STORAGE_DIR, f"{item.id}.json")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"Failed to delete file for {item.id}: {e}")
         
-    db.commit()
+        db.delete(item)
+        db.commit()
+        
+        # 触发重新生成用户评价
+        background_tasks.add_task(update_user_evaluation_in_bg, user_id)
+        
     return {"status": "updated"}
 
 if __name__ == "__main__":

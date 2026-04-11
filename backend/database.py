@@ -1,5 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import json
@@ -39,6 +40,15 @@ class User(Base):
     email = Column(String(100), unique=True, index=True)
     hashed_password = Column(String(200))
     created_at = Column(DateTime, default=datetime.now)
+
+class UserEvaluation(Base):
+    __tablename__ = "user_evaluations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(50), unique=True, index=True) # 关联用户的username或id
+    recent_evaluation = Column(Text, nullable=True)     # 近5次行程评价
+    long_term_evaluation = Column(Text, nullable=True)  # 所有行程的长期评价
+    last_updated = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
